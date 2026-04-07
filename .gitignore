@@ -1,0 +1,10 @@
+# Environment secrets
+.env
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
