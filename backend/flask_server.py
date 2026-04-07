@@ -14,7 +14,7 @@ import sys
 
 sys.path.append(os.path.dirname(__file__))
 
-from app.predict import predict_with_explanations  # noqa: E402
+from app.predict import load_artifacts, predict_with_explanations  # noqa: E402
 from app.report import report_public_urls, write_prediction_pdf  # noqa: E402
 from app.ai_assistant import ask_ai  # noqa: E402
 
@@ -24,12 +24,21 @@ _VALID_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 def create_app() -> Flask:
     app = Flask(__name__)
     CORS(app)
+    model_ready = True
+    model_error: str | None = None
 
     repo_root = os.path.dirname(os.path.dirname(__file__))
     upload_dir = os.path.join(repo_root, "uploads")
     reports_root = os.path.join(repo_root, "reports")
     os.makedirs(upload_dir, exist_ok=True)
     os.makedirs(reports_root, exist_ok=True)
+
+    # Preload model artifacts once at app startup for consistent latency.
+    try:
+        load_artifacts()
+    except Exception as e:
+        model_ready = False
+        model_error = str(e)
 
     @app.get("/uploads/<path:filename>")
     def serve_uploads(filename: str):
@@ -54,10 +63,15 @@ def create_app() -> Flask:
 
     @app.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "ok"}
+        if not model_ready:
+            return {"status": "degraded", "model_ready": "false", "error": model_error or "unknown"}
+        return {"status": "ok", "model_ready": "true"}
 
     @app.post("/predict")
     def predict_route() -> Any:
+        if not model_ready:
+            return jsonify({"error": f"Model not loaded: {model_error or 'unknown error'}"}), 503
+
         if "file" not in request.files:
             return jsonify({"error": "Missing form field 'file'."}), 400
 
